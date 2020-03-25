@@ -1,0 +1,157 @@
+################################################################################
+# Base
+# Author: Jim Griffin
+# Date: 11/8/19
+# Changes:
+#v2.17
+#     Updated base image to newer ngs-python-base
+#v2.16
+#     Updated certificates
+#v2.15
+#     Fixed botowraps bug causing failure due to botocore import
+#v2.14
+# 3rd party: parallel, expect, awscli, boto3
+# Ginkgo/personal stack:
+#     botowrap module
+#     get_lims_object.py & edge_to_cds.py (CLI for ginkgo databases)
+#     Updated download_ngs_files
+
+################################################################################
+FROM docker.ginkgobioworks.com/docker/python-ngs-base:v0.8.3
+ENV TOOLS=/tools
+################################################################################
+# Ubuntu libraries & python packages not in ngs-base
+
+RUN apt-get -qq update && apt-get install -y \
+    bamtools \
+    bioperl \
+    cmake \
+    curl \
+    expect \
+    gnuplot \
+    graphviz \
+    libbamtools-dev \
+    libboost-iostreams-dev \
+    libdatetime-perl \
+    libdigest-md5-perl \
+    liblzma-dev \
+    libncurses5-dev \
+    libncursesw5-dev \
+    libxml-simple-perl \
+    libxslt1-dev \
+    ncbi-blast+ \
+    nodejs \
+    parallel \
+    pkg-config \
+    pigz \
+    python-dev \
+    r-base-core \
+    sshpass \
+    unzip \
+    zlib1g-dev
+
+
+# Python packages
+RUN pip3 install --upgrade pip==9.0.3 \
+    awscli \
+    biopython \
+    boto3 \
+    nanopack \
+    numpy \
+    pybamview \
+    pysam \
+    python-dateutil \
+    qcat \
+    requests \
+    setuptools \
+    snakemake
+
+
+# Install miniconda to /miniconda
+RUN curl -LO http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh
+RUN bash Miniconda-latest-Linux-x86_64.sh -p /miniconda -b
+RUN rm Miniconda-latest-Linux-x86_64.sh
+ENV PATH=/miniconda/bin:${PATH}
+RUN conda update -y conda
+
+################################################################################
+# 3rd Party Tools
+
+ENV TOOLS=/tools
+RUN mkdir -p ${TOOLS}
+
+# samblaster
+WORKDIR ${TOOLS}
+RUN git clone git://github.com/GregoryFaust/samblaster.git && \
+    cd samblaster && \
+    make && \
+    cp samblaster /usr/bin/.
+
+# samclip
+WORKDIR /usr/bin
+RUN wget https://raw.githubusercontent.com/tseemann/samclip/master/samclip && \
+    chmod +x samclip
+
+# Awless
+WORKDIR ${TOOLS}
+RUN wget https://github.com/wallix/awless/releases/download/v0.1.11/awless-linux-amd64.tar.gz && \
+    tar -zxvf awless-linux-amd64.tar.gz
+
+# Pybamview:
+WORKDIR ${TOOLS}
+RUN npm install --global d3
+RUN npm install --global jsdom@9.12.0
+
+# htslib
+RUN wget https://github.com/samtools/htslib/releases/download/1.5/htslib-1.5.tar.bz2 && \
+    tar -xf htslib-1.5.tar.bz2 && cd htslib-1.5 && make && make prefix=$HOME install
+
+# bcftools
+RUN wget https://github.com/samtools/bcftools/releases/download/1.9/bcftools-1.9.tar.bz2 && \
+    tar -xjf bcftools-1.9.tar.bz2 && \
+    cd bcftools-1.9 && ./configure && make && make install
+
+# tabix
+RUN git clone https://github.com/samtools/tabix.git && cd tabix && make
+
+
+################################################################################
+# Ginkgo Stack
+
+# curiouscli & ginkgo_graphql_client
+RUN pip3 install --extra-index-url https://pypi.ginkgobioworks.com/ \
+    --trusted-host pypi.ginkgobioworks.com \
+    curiouscli ginkgo_graphql_client
+
+
+# Ginkgo-NGS Data Access
+# Add command line scripts
+COPY scripts/* /scripts/
+RUN chmod +x /scripts/*
+RUN /scripts/expect_script.sh
+
+
+# Aru's download_ngs_files
+WORKDIR ${TOOLS}
+RUN pwd
+RUN git clone https://xXP2L8HqUzzsPfnkxGFW@git.ginkgobioworks.com/ngs-analysis/download-ngs-files.git
+RUN cd download-ngs-files && \
+  git checkout raw_fastq && \
+  pip3 install . --trusted-host pypi.ginkgobioworks.com --index-url=https://pypi.ginkgobioworks.com/simple/ --no-cache
+
+
+# Add boto3 wrappers module
+COPY botowraps /tools/botowraps
+WORKDIR /tools/botowraps
+RUN python3 setup.py install
+
+
+################################################################################
+# Entrypoint & Default cmd
+
+# Set entrypoint
+WORKDIR /data
+ENTRYPOINT ["/bin/bash"]
+#CMD
+
+################################################################################

@@ -1,0 +1,65 @@
+################################################################################
+# Base
+# Author: Jim Griffin
+# Date: 11/8/19
+# Changes:
+#v2.19
+#     download-ngs-files@1.2.2
+#     new AWS credentials
+#v2.18
+#     Flattened image
+#v2.17
+#     Updated base image to newer ngs-python-base
+#v2.16
+#     Updated certificates
+#v2.15
+#     Fixed botowraps bug causing failure due to botocore import
+#v2.14
+# 3rd party: parallel, expect, awscli, boto3
+# Ginkgo/personal stack:
+#     botowrap module
+#     get_lims_object.py & edge_to_cds.py (CLI for ginkgo databases)
+#     Updated download_ngs_files
+
+################################################################################
+FROM docker.ginkgobioworks.com/ngs-analysis/ngs_analysis_base:v0.2.18
+ENV TOOLS=/tools
+
+# AWS config
+ARG AWS_KEY=$AWS_KEY
+ARG AWS_SECRET_KEY=$AWS_SECRET_KEY
+ARG REGION=us-east-1
+
+RUN aws configure set aws_access_key_id $AWS_KEY && \
+    aws configure set aws_secret_access_key $AWS_SECRET_KEY && \
+    aws configure set default.region $REGION
+
+
+################################################################################
+# Ginkgo stack & homemade code
+
+# curiouscli & ginkgo_graphql_client & download_ngs_files
+RUN ( pip3 uninstall download-ngs-files || true )
+RUN pip3 install --extra-index-url https://pypi.ginkgobioworks.com/ \
+    --trusted-host pypi.ginkgobioworks.com \
+    curiouscli ginkgo_graphql_client download-ngs-files==1.2.2
+
+# Ginkgo-NGS Data Access
+# Add command line scripts
+COPY scripts/* /scripts/
+RUN chmod +x /scripts/*
+
+# Add boto3 wrappers module
+COPY botowraps /tools/botowraps
+WORKDIR /tools/botowraps
+RUN python3 setup.py install
+
+
+################################################################################
+# Entrypoint & Default cmd
+
+# Set entrypoint
+WORKDIR /data
+ENTRYPOINT ["/bin/bash"]
+
+################################################################################
